@@ -12,6 +12,7 @@ from wakeup import (
     WakeupServer,
     find_tailscale_ipv4,
     load_settings,
+    receiver_startup_command,
     save_settings,
     tailscale_gui_executable,
 )
@@ -103,6 +104,17 @@ class SettingsTests(unittest.TestCase):
     def test_missing_settings_are_empty(self):
         with tempfile.TemporaryDirectory() as directory:
             self.assertEqual(load_settings(Path(directory) / "missing.json"), {})
+
+
+class ReceiverStartupTests(unittest.TestCase):
+    def test_frozen_receiver_starts_from_its_executable(self):
+        with patch("wakeup.sys.frozen", True, create=True), patch(
+            "wakeup.sys.executable", r"C:\Wakeup\WakeupReceiver.exe"
+        ):
+            self.assertEqual(
+                receiver_startup_command(),
+                r'"C:\Wakeup\WakeupReceiver.exe"',
+            )
 
 
 class TailscaleAddressTests(unittest.TestCase):

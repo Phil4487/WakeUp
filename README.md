@@ -7,24 +7,28 @@ PCs ueber ein privates VPN.
 
 ## Zwei App-Versionen
 
-Auf beiden PCs Python 3 mit Tkinter und Tailscale installieren. Zusaetzlich im
-Projektordner `python -m pip install -r requirements.txt` ausfuehren. Beide PCs
-muessen im selben Tailscale-Netzwerk (Tailnet) angemeldet sein.
+Beide PCs muessen im selben Tailscale-Netzwerk (Tailnet) angemeldet sein.
 
-- **Ziel-PC:** `python receiver.py` starten. Der Empfaenger laeuft automatisch.
-  Nach erfolgreichem Start verschwindet das Fenster; das Wakeup-Symbol erscheint
-  im Windows-Infobereich (gegebenenfalls unter den ausgeblendeten Symbolen).
+- **Ziel-PC:** Zum Erstellen der EXE Python 3 mit Tkinter installieren und im
+  Projektordner `build_receiver.bat` ausfuehren. Die fertige
+  `dist\WakeupReceiver.exe` kann anschliessend auf dem Ziel-PC gestartet werden;
+  dort ist keine Python-Installation erforderlich. Die EXE laeuft ohne
+  Konsolenfenster. Nach erfolgreichem Start verschwindet das Fenster; das
+  Wakeup-Symbol erscheint im Windows-Infobereich (gegebenenfalls unter den
+  ausgeblendeten Symbolen).
   Ueber das Symbol laesst sich Wakeup wieder oeffnen oder beenden.
   **Mit Windows automatisch starten** ist standardmaessig aktiviert; der
-  Empfaenger startet dann bei jeder Anmeldung dieses Windows-Benutzers.
+  Empfaenger startet dann bei jeder Anmeldung dieses Windows-Benutzers. Lass
+  die EXE dafuer an ihrem Speicherort, da der Autostart genau diesen Pfad nutzt.
   **Tailscale mit Windows starten** traegt zusaetzlich die Tailscale-App in
   denselben benutzerspezifischen Autostart ein.
   Die Tailscale-IP wird in der App angezeigt. Den angezeigten Kopplungscode
   einmal an den Sender weitergeben.
-- **Sender-PC:** `python sender.py` starten und einmal die Tailscale-IP des
-  Ziel-PCs, Port `8765` und Kopplungscode eingeben. Die Verbindung wird
-  gespeichert. Danach genuegt der Knopf zum Senden; am Ziel-PC muss niemand
-  Anfragen annehmen.
+- **Sender-PC:** Python 3 mit Tkinter installieren, im Projektordner
+  `python -m pip install -r requirements.txt` ausfuehren und dann
+  `python sender.py` starten. Einmal die Tailscale-IP des Ziel-PCs, Port `8765`
+  und Kopplungscode eingeben. Die Verbindung wird gespeichert. Danach genuegt
+  der Knopf zum Senden; am Ziel-PC muss niemand Anfragen annehmen.
 
 Der Kopplungscode und die Sender-Verbindung werden lokal im Benutzerprofil
 gespeichert und muessen nur beim ersten Einrichten eingegeben werden. Die App

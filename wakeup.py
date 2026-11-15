@@ -52,6 +52,16 @@ def save_settings(path: Path, data: dict) -> None:
         json.dump(data, settings_file)
 
 
+def receiver_startup_command() -> str:
+    if getattr(sys, "frozen", False):
+        return f'"{Path(sys.executable).resolve()}"'
+
+    pythonw = Path(sys.executable).with_name("pythonw.exe")
+    executable = pythonw if pythonw.exists() else Path(sys.executable)
+    receiver_script = Path(__file__).with_name("receiver.py").resolve()
+    return f'"{executable}" "{receiver_script}"'
+
+
 def set_receiver_autostart(enabled: bool) -> None:
     with winreg.CreateKeyEx(
         winreg.HKEY_CURRENT_USER,
@@ -60,11 +70,13 @@ def set_receiver_autostart(enabled: bool) -> None:
         winreg.KEY_SET_VALUE,
     ) as key:
         if enabled:
-            pythonw = Path(sys.executable).with_name("pythonw.exe")
-            executable = pythonw if pythonw.exists() else Path(sys.executable)
-            receiver_script = Path(__file__).with_name("receiver.py").resolve()
-            command = f'"{executable}" "{receiver_script}"'
-            winreg.SetValueEx(key, STARTUP_REGISTRY_VALUE, 0, winreg.REG_SZ, command)
+            winreg.SetValueEx(
+                key,
+                STARTUP_REGISTRY_VALUE,
+                0,
+                winreg.REG_SZ,
+                receiver_startup_command(),
+            )
         else:
             try:
                 winreg.DeleteValue(key, STARTUP_REGISTRY_VALUE)
