@@ -27,6 +27,7 @@ ENDPOINT = "/api/wakeup"
 PAIR_ENDPOINT = "/api/pair"
 STARTUP_REGISTRY_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 STARTUP_REGISTRY_VALUE = "WakeupReceiver"
+TAILSCALE_STARTUP_REGISTRY_VALUE = "WakeupTailscale"
 
 
 def settings_path(name: str) -> Path:
@@ -67,6 +68,55 @@ def set_receiver_autostart(enabled: bool) -> None:
         else:
             try:
                 winreg.DeleteValue(key, STARTUP_REGISTRY_VALUE)
+            except FileNotFoundError:
+                pass
+
+
+def tailscale_gui_executable() -> Path:
+    candidates = []
+    tailscale_cli = shutil.which("tailscale")
+    if tailscale_cli:
+        candidates.append(Path(tailscale_cli).with_name("tailscale-ipn.exe"))
+
+    for environment_variable, default in (
+        ("ProgramFiles", r"C:\Program Files"),
+        ("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+    ):
+        candidates.append(
+            Path(os.environ.get(environment_variable, default))
+            / "Tailscale"
+            / "tailscale-ipn.exe"
+        )
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate.resolve()
+    raise FileNotFoundError(
+        "Die Tailscale-App (tailscale-ipn.exe) wurde nicht gefunden. "
+        "Bitte Tailscale installieren."
+    )
+
+
+def set_tailscale_autostart(enabled: bool) -> None:
+    with winreg.CreateKeyEx(
+        winreg.HKEY_CURRENT_USER,
+        STARTUP_REGISTRY_KEY,
+        0,
+        winreg.KEY_SET_VALUE,
+    ) as key:
+        if enabled:
+            executable = tailscale_gui_executable()
+            command = f'"{executable}"'
+            winreg.SetValueEx(
+                key,
+                TAILSCALE_STARTUP_REGISTRY_VALUE,
+                0,
+                winreg.REG_SZ,
+                command,
+            )
+        else:
+            try:
+                winreg.DeleteValue(key, TAILSCALE_STARTUP_REGISTRY_VALUE)
             except FileNotFoundError:
                 pass
 
@@ -219,7 +269,12 @@ def set_master_volume_to_max() -> None:
 
 def perform_wakeup() -> None:
     set_master_volume_to_max()
-    winsound.Beep(880, 600)
+    winsound.Beep(880, 400)
+    winsound.Beep(350, 400)
+    winsound.Beep(880, 400)
+    winsound.Beep(350, 400)
+    winsound.Beep(880, 400)
+    winsound.Beep(350, 400)
 
 
 class WakeupServer(ThreadingHTTPServer):
@@ -287,6 +342,7 @@ class WakeupApp:
         self.root.resizable(False, False)
         self.server = None
         self.server_thread = None
+        self.tray_icon = None
         self.closed = False
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         if mode == "receiver":
@@ -342,7 +398,10 @@ class WakeupApp:
                 self.token = secrets.token_urlsafe(24)
             receiver_settings["token"] = self.token
             receiver_settings.setdefault("autostart", True)
-            if not isinstance(receiver_settings["autostart"], bool):
+            receiver_settings.setdefault("tailscale_autostart", True)
+            if not isinstance(receiver_settings["autostart"], bool) or not isinstance(
+                receiver_settings["tailscale_autostart"], bool
+            ):
                 raise ValueError("Die gespeicherte Autostart-Einstellung ist ungueltig.")
             save_settings(receiver_settings_path, receiver_settings)
             self.receiver_settings_path = receiver_settings_path
@@ -376,11 +435,21 @@ class WakeupApp:
             variable=self.receiver_autostart_var,
             command=self.update_receiver_autostart,
         ).pack(anchor="w", pady=(0, 8))
+        self.tailscale_autostart_var = tk.BooleanVar(
+            value=self.receiver_settings["tailscale_autostart"]
+        )
+        tk.Checkbutton(
+            frame,
+            text="Tailscale mit Windows starten",
+            variable=self.tailscale_autostart_var,
+            command=self.update_tailscale_autostart,
+        ).pack(anchor="w", pady=(0, 8))
         self.receiver_button = tk.Button(frame, text="Empfaenger stoppen", command=self.stop_server)
         self.receiver_button.pack(fill="x", pady=4)
         if self.mode == "both":
             tk.Button(frame, text="Zurueck", command=self.return_home).pack(fill="x", pady=4)
         self.update_receiver_autostart()
+        self.update_tailscale_autostart()
         self.refresh_tailscale_ip()
         self.start_server()
 
@@ -393,6 +462,16 @@ class WakeupApp:
         except OSError as error:
             self.receiver_autostart_var.set(not enabled)
             messagebox.showerror("Autostart konnte nicht geaendert werden", str(error))
+
+    def update_tailscale_autostart(self):
+        enabled = self.tailscale_autostart_var.get()
+        try:
+            set_tailscale_autostart(enabled)
+            self.receiver_settings["tailscale_autostart"] = enabled
+            save_settings(self.receiver_settings_path, self.receiver_settings)
+        except OSError as error:
+            self.tailscale_autostart_var.set(not enabled)
+            messagebox.showerror("Tailscale-Autostart konnte nicht geaendert werden", str(error))
 
     def refresh_tailscale_ip(self):
         self.tailscale_refresh_button.configure(state="disabled")
@@ -444,6 +523,51 @@ class WakeupApp:
             text=f"Laeuft auf Port {PORT}. Anfragen werden automatisch ausgefuehrt."
         )
         self.receiver_button.configure(text="Empfaenger stoppen", command=self.stop_server)
+        self._start_tray_icon()
+
+    def _start_tray_icon(self):
+        if self.tray_icon:
+            self.root.after_idle(self.root.withdraw)
+            return
+        try:
+            import pystray
+            from PIL import Image, ImageDraw
+
+            image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(image)
+            draw.rounded_rectangle((2, 2, 62, 62), radius=15, fill="#2563EB")
+            draw.text((18, 12), "W", fill="white", stroke_width=1)
+            self.tray_icon = pystray.Icon(
+                "Wakeup",
+                image,
+                "Wakeup Empfaenger",
+                menu=pystray.Menu(
+                    pystray.MenuItem("Wakeup oeffnen", self._open_from_tray, default=True),
+                    pystray.MenuItem("Beenden", self._close_from_tray),
+                ),
+            )
+            self.tray_icon.run_detached(setup=self._tray_icon_ready)
+        except (ImportError, OSError, RuntimeError) as error:
+            self.tray_icon = None
+            messagebox.showerror("Infobereich-Symbol konnte nicht gestartet werden", str(error))
+
+    def _tray_icon_ready(self, icon):
+        if self.closed:
+            icon.stop()
+            return
+        icon.visible = True
+        self.root.after(0, self.root.withdraw)
+
+    def _open_from_tray(self, _icon, _item):
+        self.root.after(0, self._restore_from_tray)
+
+    def _restore_from_tray(self):
+        self.root.deiconify()
+        self.root.lift()
+        self.root.focus_force()
+
+    def _close_from_tray(self, _icon, _item):
+        self.root.after(0, self.close)
 
     def stop_server(self):
         if self.server:
@@ -655,6 +779,8 @@ class WakeupApp:
     def close(self):
         self.closed = True
         self.stop_server()
+        if self.tray_icon:
+            self.tray_icon.stop()
         self.root.destroy()
 
 

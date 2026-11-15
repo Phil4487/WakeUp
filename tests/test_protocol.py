@@ -4,6 +4,7 @@ import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+from unittest.mock import patch
 
 from wakeup import (
     ENDPOINT,
@@ -12,6 +13,7 @@ from wakeup import (
     find_tailscale_ipv4,
     load_settings,
     save_settings,
+    tailscale_gui_executable,
 )
 
 
@@ -110,6 +112,36 @@ class TailscaleAddressTests(unittest.TestCase):
 
     def test_returns_none_without_tailscale_address(self):
         self.assertIsNone(find_tailscale_ipv4("192.168.1.20\n8.8.8.8\n"))
+
+
+class TailscaleStartupTests(unittest.TestCase):
+    def test_finds_gui_in_program_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            program_files = Path(directory)
+            executable = program_files / "Tailscale" / "tailscale-ipn.exe"
+            executable.parent.mkdir()
+            executable.touch()
+
+            with patch("wakeup.shutil.which", return_value=None), patch.dict(
+                "os.environ",
+                {
+                    "ProgramFiles": str(program_files),
+                    "ProgramFiles(x86)": str(program_files / "x86"),
+                },
+            ):
+                self.assertEqual(tailscale_gui_executable(), executable.resolve())
+
+    def test_reports_missing_gui(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("wakeup.shutil.which", return_value=None), patch.dict(
+                "os.environ",
+                {
+                    "ProgramFiles": directory,
+                    "ProgramFiles(x86)": directory,
+                },
+            ):
+                with self.assertRaises(FileNotFoundError):
+                    tailscale_gui_executable()
 
 
 if __name__ == "__main__":
